@@ -42,50 +42,29 @@ Por último, y para que pueda disfrutarse de la demo "Old School" de MAT/ESI, cr
 
 El Jupiter ACE, después de las modificaciones descritas, tiene esta interfaz:
 
-`module jupiter_ace (`
-
-`  input wire clkram, // reloj para el uso de la BRAM. 4x reloj de pixel`
-
-`  input wire clk65,  // reloj de pixel. Originalmente es el reloj maestro del Jupiter ACE`
-
-`  input wire reset_n,  // reset de la CPU`
-
-`  input wire ear,  // Entrada EAR`
-
-`  output wire [7:0] filas,   // Filas y columnas de`
-
-`  input wire [4:0] columnas, // la matriz de teclado`
-
-`  output wire r,  // Color de`
-
-`  output wire g,  // un pixel`
-
-`  output wire b,  //`
-
-`  output wire hsync,  // Sincronismos`
-
-`  output wire vsync,  // separados`
-
-`  output wire mic,  // Señal MIC`
-
-`  output wire spk,  // Señal del altavoz`
-
-`  output wire [7:0] ay_a,  // Esta parte es nueva`
-
-`  output wire [7:0] ay_b,  // en el ACE. Es la salida de sonido`
-
-`  output wire [7:0] ay_c,  // separada del chip AY-3-8912`
-
-`  //----------------------`
-
-`  output wire [20:0] ext_sram_addr,  // Esta parte tampoco estaba en`
-
-`  output wire [7:0] data_to_sram,    // el core original. Es la interfaz`
-
-`  input wire [7:0] data_from_sram,   // para poder usar memoria externa`
-
-`  output wire sram_we_n,             // como memoria de usuario`
-
-`  output wire sram_oe_n              //`
-
-`);`
+```verilog
+module jupiter_ace (
+  input wire clkram, // reloj para el uso de la BRAM. 4x reloj de pixel
+  input wire clk65,  // reloj de pixel. Originalmente es el reloj maestro del Jupiter ACE
+  input wire reset_n,  // reset de la CPU
+  input wire ear,  // Entrada EAR
+  output wire [7:0] filas,   // Filas y columnas de
+  input wire [4:0] columnas, // la matriz de teclado
+  output wire r,  // Color de
+  output wire g,  // un pixel
+  output wire b,  //
+  output wire hsync,  // Sincronismos
+  output wire vsync,  // separados
+  output wire mic,  // Señal MIC
+  output wire spk,  // Señal del altavoz
+  output wire [7:0] ay_a,  // Esta parte es nueva
+  output wire [7:0] ay_b,  // en el ACE. Es la salida de sonido
+  output wire [7:0] ay_c,  // separada del chip AY-3-8912
+  //----------------------
+  output wire [20:0] ext_sram_addr,  // Esta parte tampoco estaba en
+  output wire [7:0] data_to_sram,    // el core original. Es la interfaz
+  input wire [7:0] data_from_sram,   // para poder usar memoria externa
+  output wire sram_we_n,             // como memoria de usuario
+  output wire sram_oe_n              //
+);
+```
