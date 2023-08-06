@@ -107,10 +107,10 @@ module tld_jace_color_ay (
   wire [4:0] kbd_columns;
 
   wire [7:0] sram_data_dout;
-assign     sram_data = (sram_we_n == 1'b0)? {8'h00, sram_data_out} : 16'hZZZZ;
-assign     sram_lb_n = 1'b0;  // usaremos solo el bus bajo
-assign     sram_ub_n = 1'b1;  // de datos (0-7)
-  
+  assign     sram_data = (sram_we_n == 1'b0)? {8'h00, sram_data_out} : 16'hZZZZ;
+  assign     sram_lb_n = 1'b0;  // usaremos solo el bus bajo
+  assign     sram_ub_n = 1'b1;  // de datos (0-7)
+    
   relojes_mmcm los_relojes (
    .CLK_IN1(clk50mhz),
    .CLK_OUT1(clkram),     // for driving synch RAM and ROM = 26 MHz
@@ -391,6 +391,8 @@ Para cada uno de los canales del AY-3-8912, que originalmente viene como un valo
 
 De esta forma, y como se puede observar en el código mostrado más arriba, cada suma dará un valor compatible con el rango positivo del complemento a 2 para 16 bits. En realidad, el rango obtenido irá desde 0 hasta 8191\*3 para cada salida, es decir, de 0 a 24573.
 
+Para comprobar que todo esto funciona, al arrancar el Jupiter ACE debe hacerlo como siempre. Para probar un sonido simple, he usado el comando 250 1000 BEEP que emite un sonido de 1 kHz durante 1 segundo. Para probar que funciona MIC, he probado a grabar algo (SAVE loquesea) y para probar el AY-3-8912, he cargado por audio la demo Old School Demo para Jupiter ACE, de MAT/ESI. Al escuchar el audio de la carga por los altavoces, constato que también tengo la señal EAR presente.
+
 ### Conexión a la SRAM
 
 La parte de ZX3W que gobierna la SRAM tiene esta interfaz:
@@ -468,3 +470,7 @@ Para que el core no pretenda usar la SRAM antes de tiempo, la señal `poweron_re
 Ahora se haga así, añadiendo esta nueva señal:
 
 `.reset_n (kbd_reset & locked & ~poweron_reset),`
+
+Después de esto, el core debería seguir arrancando y funcionando como hasta ahora.
+
+### Imagen por VGA y DisplayPort
