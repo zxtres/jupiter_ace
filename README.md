@@ -424,7 +424,7 @@ La mitad inferior, en concreto, las seis primeras señales de esa mitad, se cone
 Conectamos las señales del core al ZX3W así:
 
 ```verilog
-  ///////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
   .sram_addr_in(jace_sram_addr),                     // Bus de direcciones proveniente del core (el Jupiter ACE)
   .sram_we_n_in(jace_sram_we_n),                     // Señal de escritura proveniente del core 
   .sram_oe_n_in(jace_sram_oe_n),                     // Señal de habilitación de lectura proveniente del core
@@ -636,3 +636,10 @@ Y un poco antes, en la parte en la que se elige la salida de video, forzamos a q
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ```
+
+Faltan dos cosas en la instanciación:
+
+-   Un reloj de video adecuado
+-   Especificar los valores de HSTART, VSTART
+
+Para el reloj:
