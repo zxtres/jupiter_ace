@@ -44,27 +44,144 @@ El Jupiter ACE, después de las modificaciones descritas, tiene esta interfaz:
 
 ```verilog
 module jupiter_ace (
-  input wire clkram, // reloj para el uso de la BRAM. 4x reloj de pixel
-  input wire clk65,  // reloj de pixel. Originalmente es el reloj maestro del Jupiter ACE
-  input wire reset_n,  // reset de la CPU
-  input wire ear,  // Entrada EAR
-  output wire [7:0] filas,   // Filas y columnas de
-  input wire [4:0] columnas, // la matriz de teclado
-  output wire r,  // Color de
-  output wire g,  // un pixel
-  output wire b,  //
-  output wire hsync,  // Sincronismos
-  output wire vsync,  // separados
-  output wire mic,  // Señal MIC
-  output wire spk,  // Señal del altavoz
-  output wire [7:0] ay_a,  // Esta parte es nueva
-  output wire [7:0] ay_b,  // en el ACE. Es la salida de sonido
-  output wire [7:0] ay_c,  // separada del chip AY-3-8912
+  input wire         clkram, // reloj para el uso de la BRAM. 4x el reloj de pixel. 26 MHz. Probablemente hubiera bastado con 13.5 MHz
+  input wire         clk65,  // reloj de pixel. Originalmente es el reloj maestro del Jupiter ACE. 6.5 MHz
+  input wire         reset_n,  // reset de la CPU
+  input wire         ear,      // Entrada EAR
+  output wire [7:0]  filas,      // Filas y columnas de
+  input wire [4:0]   columnas,   // la matriz de teclado
+  output wire        r,  // Color de
+  output wire        g,  // un pixel
+  output wire        b,  //
+  output wire        hsync,  // Sincronismos
+  output wire        vsync,  // separados
+  output wire        mic,  // Señal MIC
+  output wire        spk,  // Señal del altavoz
+  output wire [7:0]  ay_a,  // Esta parte es nueva
+  output wire [7:0]  ay_b,  // en el ACE. Es la salida de sonido
+  output wire [7:0]  ay_c,  // separada del chip AY-3-8912
   //----------------------
   output wire [20:0] ext_sram_addr,  // Esta parte tampoco estaba en
-  output wire [7:0] data_to_sram,    // el core original. Es la interfaz
-  input wire [7:0] data_from_sram,   // para poder usar memoria externa
-  output wire sram_we_n,             // como memoria de usuario
-  output wire sram_oe_n              //
+  output wire [7:0]  data_to_sram,   // el core original. Es la interfaz
+  input wire [7:0]   data_from_sram, // para poder usar memoria externa
+  output wire        sram_we_n,      // como memoria de usuario
+  output wire        sram_oe_n       //
 );
 ```
+
+Para portar en su totalidad el core (imagen, sonido, acceso a memoria para obtener el modo de video inicial) iremos poco a poco.
+
+En el proyecto, copiamos el fichero XDC con los pines de la FPGA. Usaremos esos nombres de pines en el módulo TLD del proyecto.
+
+Lo primero es comprobar que el core funciona, llevando su salida de video directamente a los pines de la VGA, y creando un sincronismo compuesto que llevaremos al pin vga_hs. En el pin vga_vs ponemos un 1. Para el acceso a la SRAM, vamos a conectarla directamente, sin hacer uso del wrapper aún. En definitiva, en el TLD haremos algo como esto:
+
+```verilog
+module tld_jace_color_ay (
+   input wire         clk50mhz, 
+
+   output wire [5:0]  vga_r,
+   output wire [5:0]  vga_g,
+   output wire [5:0]  vga_b,
+   output wire        vga_hs,
+   output wire        vga_vs,
+   input  wire        ear,
+   inout  wire        clkps2,
+   inout  wire        dataps2,
+   output wire        audio_out_left,
+   output wire        audio_out_right,
+   
+   output wire [19:0] sram_addr,
+   inout  wire [15:0] sram_data,
+   output wire        sram_we_n,
+   output wire        sram_oe_n,
+   output wire        sram_ub_n,
+   output wire        sram_lb_n
+  );
+    
+  wire       clkram; // 26 MHz to clock internal RAM/ROM
+  wire       clk65;  // 6.5MHz main frequency Jupiter ACE
+  wire       locked;
+  
+  wire       kbd_reset;
+  wire [7:0] kbd_rows;
+  wire [4:0] kbd_columns;
+
+  wire [7:0] sram_data_dout;
+assign     sram_data = (sram_we_n == 1'b0)? {8'h00, sram_data_out} : 16'hZZZZ;
+assign     sram_lb_n = 1'b0;  // usaremos solo el bus bajo
+assign     sram_ub_n = 1'b1;  // de datos (0-7)
+  
+  relojes_mmcm los_relojes (
+   .CLK_IN1(clk50mhz),
+   .CLK_OUT1(clkram),     // for driving synch RAM and ROM = 26 MHz
+   .CLK_OUT2(clk65),      // video clock = 6.5 MHz
+   .locked  (locked)      // reloj estable cuando esta señal = 1
+  );
+  
+  jupiter_ace the_core (
+   .clkram(clkram),
+   .clk65(clk65),
+   .reset_n(kbd_reset & locked),  // el Jupiter ACE se resetea por teclado o al principio del todo
+   .ear(ear),
+   .filas(kbd_rows),             // Esto viene del módulo de teclado, donde se implementa
+   .columnas(kbd_columns),       // la matriz de 5x8 teclas
+   .r(r_ace),                 // Salida de video en
+   .g(g_ace),                 // color, 1 bit por color 
+   .b(b_ace),                 // primario (ETI 1984)
+   .hsync(pal_hsync & pal_vsync),  // sincronismo compuesto
+   .vsync(1'b1),
+   .mic(audio_out_left),  // No me complico la vida. Llevo cada señal
+   .spk(audio_out_right), // a un altavoz diferente. No uso el I2S aún
+   .ay_a(),      // De momento, para comprobar que el core funciona
+   .ay_b(),      // no necesito conectar la salida del AY-3-8912
+   .ay_c(),      //
+   .ext_sram_addr(sram_addr),           //
+   .data_to_sram(sram_data_dout),       //
+   .data_from_sram(sram_data),          // 
+   .sram_we_n(sram_we_n),               //
+   .sram_oe_n(sram_oe_n)                //
+  );
+
+  keyboard_for_ace the_keyboard (
+   .clk(clk65),
+   .poweron_reset(poweron_reset),
+   .clkps2(clkps2),
+   .dataps2(dataps2),
+   .rows(kbd_rows),
+   .columns(kbd_columns),
+   .kbd_reset(kbd_reset)
+  );
+endmodule
+```
+
+Esta primera conversión usa al ZXTRES en su forma mínima: salida de video RGB a 15 kHz (o lo que saque nativamente el core), el sonido tipo beeper de la señal SPK la envío directamente a uno de los altavoces (audio_out_left externamente está conectada a la salida izquierda de sonido sólo con un pequeño filtro paso-baja en medio) y la de MIC, simplemente por no dejarla sola, la conecto al otro (right).
+
+Las señales del teclado no han cambiado respecto a ZXUNO.
+
+En cuanto al reloj, he creado un módulo nuevo usando el MMCM de Artix 7, lo que me permite afinar más en cuanto a las frecuencias sintetizadas, ya que puedo usar divisores con parte decimal. Así, en lugar de los 6.65536 MHz que usaba en el core original, aquí puedo usar exactamente 6.5 MHz y 26 MHz como reloj para la RAM interna.
+
+Lo de usar una frecuencia tan alta para la BRAM es únicamente por desconocimiento mío: este core data del 2011, y no llevaba ni un año experimentando con Verilog, con lo que traducir lógica asíncrona a lógica síncrona no era mi fuerte (tampoco ahora, la verdad). Pensé que, simplemente dando un reloj lo suficientemente rápido respecto al resto del core, la memoria funcionaría como en el caso asíncrono, dándome el dato "lo antes posible".
+
+En el core original había una señal para el reloj de la CPU, a 3.25 MHz. En esta versión, ese reloj no lo he podido sintetizar.
+
+Resulta que en la Artix 7, la versión -2 que estamos usando, necesita que el reloj que se usa internamente como resultado de multiplicar el reloj externo (50 MHz) por el multiplicador, dé una frecuencia de entre 600 y 1400 MHz (en la Spartan 6 el rango por debajo era de 400).
+
+Por otra parte, los valores del divisor que se usan en el MMCM llegan hasta 128. Esto significa que la frecuencia más baja que se puede sintetizar es de 600 MHz / 128 = 4.6875 MHz. Por encima de los 3.25 MHz requeridos. Esto, que es lo que más me ha costado modificar para que el core original funcione, ha hecho que tenga que modificar el módulo de CPU que originalmente usaba, para que permita *clock enables*, y así poder alimentarlo con un reloj más alto (6.5 MHz) y usar una señal de enable a 3.25 MHz. Aquí se ve el cambio:
+
+```verilog
+	reg enable_cpu_p = 1'b0;
+	reg enable_cpu_n = 1'b0;
+	always @(posedge clk65)
+	  enable_cpu_p <= ~enable_cpu_p;
+	always @(negedge clk65)
+	  enable_cpu_n <= ~enable_cpu_n;
+	  
+	tv80n cpu(
+		// Outputs
+		.m1_n(), .mreq_n(mreq_n), .iorq_n(iorq_n), .rd_n(rd_n), .wr_n(wr_n), .rfsh_n(), .halt_n(), .busak_n(), .A(AZ80), .do(DoutZ80),
+		// Inputs
+		.di(DinZ80), .reset_n(reset_n), .clk(clk65), .cep(enable_cpu_p), .cen(enable_cpu_n), .wait_n(wait_n), .int_n(int_n), .nmi_n(1'b1), .busrq_n(1'b1)
+        );
+```
+
+En la CPU hay partes que funcionan con el flanco negativo del reloj y otras con el flanco positivo, así que necesito dos tipos de *enable*: uno para cada tipo de flanco. Cada señal de *enable* tiene la mitad de frecuencia del reloj de 6.5 MHz, así que con ellas conseguimos que el módulo de CPU funcione a la frecuencia original de 3.25 MHz.
