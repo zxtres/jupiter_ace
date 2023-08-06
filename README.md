@@ -474,3 +474,165 @@ Ahora se haga así, añadiendo esta nueva señal:
 Después de esto, el core debería seguir arrancando y funcionando como hasta ahora.
 
 ### Imagen por VGA y DisplayPort
+
+Aquí es donde más modificaciones pueden ser necesarias al propio ZX3W, y quizás al core. Es posible que el core dé una señal en color RGB con varios bits por cada color primario, y que no use modos paletizados, esto es, que no codifique el color de los píxeles con un índice a una paleta fija, sino que use directamente RGB. Este sería... un poco el peor caso, porque obligaría a usar una mayor cantidad de memoria para el frame buffer.
+
+Puede que dé una señal en color RGB con varios bits por cada color primario, pero que esos valores sean fijos según una paleta establecida en el hardware, como por ejemplo pasa en el Commodore 64, que puede dar un valor de color de 24 bits, pero en realidad son 16 colores diferentes. Ese caso lo abordaremos en un tutorial aparte.
+
+Por último, es posible que el core dé una señal RGB pero muy simple, con 1 ó 2 bits por color primario, como es este caso del Jupiter ACE, en donde tenemos 1 bit por color primario. En este caso, sería un desperdicio total el guardar 24 bits de información por pixel, cuando nos basta con 3.
+
+Por otra parte, el core no da salida entrelazada y no hay, como en el Spectrum, software que use efectos tipo gigascreen, lo que significa que no necesitamos un framebuffer completo (640x480) sino uno de un solo campo (640x240).
+
+Con esto conseguimos que la memoria BRAM necesaria para implementar el framebuffer se reduzca a 640\*240\*3 bits = 921600 bits, lo que está dentro del tamaño máximo de BRAM permitido por la menor de las FPGAs, la A35T.
+
+En resumen, esto significa que el core se verá igual en cualquiera de los tres modelos de ZXTRES, y que, de hecho, podremos usar la misma versión del módulo ZX3W para las tres FPGAs.
+
+Para hacer la menor cantidad posible de cambios al wrapper, vamos a optar por la siguiente estrategia:
+
+**Primero:** damos a ZX3W un valor de color de 24 bits. Esto es, las señales ri, gi, bi del ZX3W se instanciarán de esta forma:
+
+(en el propio core...)
+
+```verilog
+   wire r_ace, g_ace, b_ace;
+
+   ...
+   ...
+   ...
+   ...
+
+   .r(r_ace),                 //
+   .g(g_ace),                 // Salida de video en color, 1 bit por color primario (ETI 1984)
+   .b(b_ace),                 //
+```
+
+(en ZX3W...)
+
+```verilog
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+  .ri({8{r_ace}}),       // Repito 8 veces el valor del bit
+  .gi({8{g_ace}}),       // de cada color primario que tengo del CE
+  .bi({8{b_ace}}),       // para obtener un valor de 24 bits
+  .hsync_ext_n(pal_hsync),               // Sincronismos horizontal y vertical
+  .vsync_ext_n(pal_vsync),               // por separado
+.csync_ext_n(pal_hsync & pal_vsync),   // El sincronismo compuesto se forma de forma muy sencilla
+////////////////////////////////////////////////////////////////////////////////////////////////////////////
+```
+
+**Segundo:** hemos quedado en que usaremos la misma instancia de ZX3W para las tres FPGAs: borramos los ficheros `zxtres_wrapper_a200t.v` , `zxtres_wrapper_a100t.v` y `zxtres_wrapper.v` . El fichero que nos queda, `zxtres_wrapper_a35t.v` lo renombramos como `zxtres_wrapper.v` . En el proyecto, eliminamos los ficheros que ya no existen.
+
+Tercero: abrimos nuestro nuevo `zxtres_wrapper.v` , que originalmente corresponde a la A35T. Navegamos hasta la parte en la que se define el framebuffer, que es un módulo llamado `dp_memory` (hacia la línea 692), y que tiene esta pinta:
+
+```verilog
+module dp_memory (
+  input  wire        campoparimpar_pal,
+  input  wire        lineaparimpar_vga,
+  input  wire        interlaced_image,
+  input  wire        clkw,
+  input  wire [18:0] aw,
+  input  wire [7:0]  rin,
+  input  wire [7:0]  gin,
+  input  wire [7:0]  bin,
+  input  wire        we,
+  input  wire        clkr,
+  input  wire [18:0] ar,
+  output wire [7:0]  rout,
+  output wire [7:0]  gout,
+  output wire [7:0]  bout
+  );
+
+  reg [8:0] fb [0:640*240-1];  // 640*240 pixeles
+  reg [8:0] dout;
+
+  assign rout = {dout[8:6], dout[8:6], dout[8:7]};
+  assign gout = {dout[5:3], dout[5:3], dout[5:4]};
+  assign bout = {dout[2:0], dout[2:0], dout[2:1]};
+
+  always @(posedge clkw) begin
+    if (we == 1'b1) begin
+      fb[aw] <= {rin[7:5],gin[7:5],bin[7:5]};
+    end
+  end
+
+  always @(posedge clkr) begin
+    dout <= fb[ar];
+  end
+
+endmodule
+```
+
+Esta versión, la de la A35T tiene señales que no se usan, porque no implementamos el framebuffer completo. Sin embargo, están ahí por si pudieran usarse en la implementación concreta de un framebuffer para un core. Este podría ser el caso, pero como no tenemos necesidad de implementarlo, seguiremos ignorándolas.
+
+El cambio que hay que hacer aquí es cambiar la definición de la memoria que implementa el framebuffer, de esto:
+
+```
+  reg [8:0] fb [0:640*240-1];  // 640*240 pixeles
+  reg [8:0] dout;
+```
+
+A esto:
+
+```
+  reg [2:0] fb [0:640*240-1];  // 640*240 pixeles
+  reg [2:0] dout;
+```
+
+Antes, para escribir un nuevo valor a una celda del framebuffer, se hacía esto:
+
+```
+      fb[aw] <= {rin[7:5],gin[7:5],bin[7:5]};
+```
+
+Ahora basta con esto:
+
+```
+      fb[aw] <= {rin[7],gin[7],bin[7]};
+```
+
+En realidad, cualquier bit de `rin`, `gin` o `bin` valen, ya que todos los bits valen lo mismo: o todos 1, o todos 0.
+
+Al leer un valor se deposita en el registro `dout` . Desde ahí los valores de color de salida se reconvierten a 24 bits. Originalmente es así:
+
+```
+  assign rout = {dout[8:6], dout[8:6], dout[8:7]};
+  assign gout = {dout[5:3], dout[5:3], dout[5:4]};
+  assign bout = {dout[2:0], dout[2:0], dout[2:1]};
+```
+
+Y ahora, como es sólo 1 bit el que se usa para generar 8, pues hacemos así:
+
+```
+  assign rout = {8{dout[2]}};
+  assign gout = {8{dout[1]}};
+  assign bout = {8{dout[0]}};
+```
+
+Y con esto ya estaría modificado ZX3W para este core, o para cualquier otro que implemente salida de color con 3 bits (el QL por ejemplo, también podría usar esto).
+
+De vuelta a la instanciación del ZX3W en el TLD de nuestro core, terminamos de instanciar las señales que necesitamos para obtener video. Además, vamos a pedirle que siga mostrando la señal PAL. De esa forma seguimos teniendo monitorizado el comportamiento del core, y que éste siga estable. Si tenemos un monitor DisplayPort, podremos ver, al mismo tiempo, que genera correctamente la imagen. Si no, y si tampoco tenemos un conversor DisplayPort -\> HDMI adecuado, pasaremos a generar una señal compatible VGA en un paso posterior.
+
+La parte que queda de la instanciación de señales para la parte de video, queda así (recordemos que las conexiones al DisplayPort ya las habíamos hecho)
+
+```verilog
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  .ro(vga_r),           // Salida de 6 bits directas
+  .go(vga_g),           // a los pines del monitor VGA
+  .bo(vga_b),           // 
+  .hsync(vga_hs),       // Lo mismo, pero para los sincronismos
+  .vsync(vga_vs),       // horizontal y vertical.
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+```
+
+Y un poco antes, en la parte en la que se elige la salida de video, forzamos a que se emita la señal PAL original, sin efectos monocromáticos, y poner o no las scanlines, lo dejamos a gusto de cada uno.
+
+```verilog
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+  .video_output_sel(1'b0),    // Señal PAL por el conector VGA
+  .disable_scanlines(1'b0),   // Scanlines activas, porque yo lo valgo
+  .monochrome_sel(2'b00),     // Sin modo monocromático
+  .interlaced_image(1'b0),    // La imagen del Jupiter ACE no es entrelazada
+  .ad724_modo(1'b0),          // Se genera un reloj de color PAL (17.74 MHz)
+  .ad724_clken(1'b0),         // De momento, no usaremos el reloj PAL generado en la FPGA (aunque generar, se genera)
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////
+```
