@@ -169,19 +169,224 @@ Resulta que en la Artix 7, la versión -2 que estamos usando, necesita que el re
 Por otra parte, los valores del divisor que se usan en el MMCM llegan hasta 128. Esto significa que la frecuencia más baja que se puede sintetizar es de 600 MHz / 128 = 4.6875 MHz. Por encima de los 3.25 MHz requeridos. Esto, que es lo que más me ha costado modificar para que el core original funcione, ha hecho que tenga que modificar el módulo de CPU que originalmente usaba, para que permita *clock enables*, y así poder alimentarlo con un reloj más alto (6.5 MHz) y usar una señal de enable a 3.25 MHz. Aquí se ve el cambio:
 
 ```verilog
-	reg enable_cpu_p = 1'b0;
-	reg enable_cpu_n = 1'b0;
-	always @(posedge clk65)
-	  enable_cpu_p <= ~enable_cpu_p;
-	always @(negedge clk65)
-	  enable_cpu_n <= ~enable_cpu_n;
+reg enable_cpu_p = 1'b0;
+reg enable_cpu_n = 1'b0;
+always @(posedge clk65)
+  enable_cpu_p <= ~enable_cpu_p;
+always @(negedge clk65)
+  enable_cpu_n <= ~enable_cpu_n;
 	  
-	tv80n cpu(
-		// Outputs
-		.m1_n(), .mreq_n(mreq_n), .iorq_n(iorq_n), .rd_n(rd_n), .wr_n(wr_n), .rfsh_n(), .halt_n(), .busak_n(), .A(AZ80), .do(DoutZ80),
-		// Inputs
-		.di(DinZ80), .reset_n(reset_n), .clk(clk65), .cep(enable_cpu_p), .cen(enable_cpu_n), .wait_n(wait_n), .int_n(int_n), .nmi_n(1'b1), .busrq_n(1'b1)
-        );
+tv80n cpu (
+  // Outputs
+.m1_n(), 
+.mreq_n(mreq_n), 
+.iorq_n(iorq_n), 
+.rd_n(rd_n), 
+.wr_n(wr_n), 
+.rfsh_n(), 
+.halt_n(), 
+.busak_n(), 
+.A(AZ80), 
+.do(DoutZ80),
+  // Inputs
+.di(DinZ80), 
+.reset_n(reset_n), 
+.clk(clk65),          // Reloj x2 del habitual
+.cep(enable_cpu_p),   // Los nuevos enables para flanco positivo
+.cen(enable_cpu_n),   // y flanco negativo
+.wait_n(wait_n), 
+.int_n(int_n), 
+.nmi_n(1'b1), 
+.busrq_n(1'b1)
+);
 ```
 
 En la CPU hay partes que funcionan con el flanco negativo del reloj y otras con el flanco positivo, así que necesito dos tipos de *enable*: uno para cada tipo de flanco. Cada señal de *enable* tiene la mitad de frecuencia del reloj de 6.5 MHz, así que con ellas conseguimos que el módulo de CPU funcione a la frecuencia original de 3.25 MHz.
+
+### Port del sonido
+
+Vamos a comenzar adaptando el sonido. Antes de nada, añadir todos los ficheros de ZX3W, y modificar el TLD añadiendo las señales que no teníamos: las concernientes al módulo I2S, joystick (aunque éstas no las usaremos en el core), y las más importantes: las del DisplayPort. La definición del nuevo TLD queda así (que puede usarse como plantilla para casi cualquier otro core):
+
+```verilog
+module tld_jace_color_ay (
+   input  wire clk50mhz,
+
+   output wire [5:0]  vga_r,
+   output wire [5:0]  vga_g,
+   output wire [5:0]  vga_b,
+   output wire        vga_hs,
+   output wire        vga_vs,
+   input  wire        ear,
+   inout  wire        clkps2,
+   inout  wire        dataps2,
+   output wire        audio_out_left,
+   output wire        audio_out_right,
+   
+   output wire [19:0] sram_addr,
+   inout  wire [15:0] sram_data,
+   output wire        sram_we_n,
+   output wire        sram_oe_n,
+   output wire        sram_ub_n,
+   output wire        sram_lb_n,
+   
+   input  wire        joy_data,
+   output wire        joy_clk,
+   output wire        joy_load_n,
+   
+   output wire        i2s_bclk,
+   output wire        i2s_lrclk,
+   output wire        i2s_dout,  
+   
+   output wire        sd_cs_n,    
+   output wire        sd_clk,     
+   output wire       sd_mosi,    
+   input  wire       sd_miso,
+   
+   output wire       dp_tx_lane_p,
+   output wire       dp_tx_lane_n,
+   input  wire       dp_refclk_p,
+   input  wire       dp_refclk_n,
+   input  wire       dp_tx_hp_detect,
+   inout  wire       dp_tx_auxch_tx_p,
+   inout  wire       dp_tx_auxch_tx_n,
+   inout  wire       dp_tx_auxch_rx_p,
+   inout  wire       dp_tx_auxch_rx_n
+);
+```
+
+Este TLD está casi completo. Las únicas señales que no he añadido son las del módulo I2C del RTC, ni el puerto serie del módulo wifi.
+
+No vamos a usar todas estas señales en el core, pero no pasa nada porque estén ahí.
+
+La primera instanciación que haremos del ZX3W sólo tendrá conectadas las señales de sonido, los relojes, y la salida al DisplayPort (aunque aún no la usemos). Definimos dos señales de 16 bits: `reg [15:0] audio_l_del_core, audio_r_del_core` a las que asignaremos el valor correspondiente (en un momento).
+
+```verilog
+  // Conexión del core al ZX3W.
+  zxtres_wrapper #(.HSTART(0), .VSTART(0), .CLKVIDEO(13), .INITIAL_FIELD(0)) scaler (
+  .clkvideo(clkvideo),          // Reloj de video (debe estar en torno a los 14 MHz, porque 
+  .enclkvideo(1'b1),            // debe dar un tick por cada pixel de pantalla PAL)
+  .clkpalntsc(1'b0),          // Reloj de 100 MHz proveniente del MMCM
+  .reset_n(locked),             // El módulo PLL o MCMM que genera los relojes debería generar una 
+                                // señal "locked" que vale 1 cuando el reloj es estable, 
+                                // y 0 cuando no lo está. Conéctala aquí.
+  .reboot_fpga(),   // Señal generada por el teclado. Vale 1 para indicar reboot de la FPGA 
+  ///////////////////////////////////////////////////////////////////////////////////////////////////////////
+  .sram_addr_in(21'h1FFFFF),      //
+  .sram_we_n_in(1'b1),            // 
+  .sram_oe_n_in(1'b1),            //
+  .sram_data_from_chip(),         //
+  .sram_data_to_chip(8'hFF),      //
+  .sram_addr_out(sram_addr),        // Estas señales que vienen del
+  .sram_we_n_out(sram_we_n),        // y hacia el ZX3W las dejamos
+  .sram_oe_n_out(sram_oe_n),      // ya conectadas al
+  .sram_ub_n_out(sram_ub_n),      // chip SRAM, para 
+  .sram_lb_n_out(sram_lb_n),      // usarlas más tarde
+  .sram_data(sram_data),          //
+  .poweron_reset(),                   // De momento, no usamos 
+  .config_vga_on(),                   // nada de esto
+  .config_scanlines_off(),            //
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+  .video_output_sel(1'b0),     // De momento, ponemos aquí PAL
+  .disable_scanlines(1'b1),    // De momento, sin scanlines
+  .monochrome_sel(2'b00),      // De momento, sin efecto mono
+  .interlaced_image(1'b0),     // La imagen del Jupiter ACE no es entrelazada
+  .ad724_modo(1'b0),           // Se genera un reloj de color PAL (17.74 MHz)
+  .ad724_clken(1'b0),          // De momento, no usaremos el reloj PAL generado en la FPGA  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+.ri(),               //
+  .gi(),               // Aquí irían las señales de color
+  .bi(),               // del Jupiter ACE. De momento, no
+  .hsync_ext_n(),      // ponemos nada aquí
+  .vsync_ext_n(),      //
+  .csync_ext_n(),      //
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  .audio_l(audio_l_del_core),            // Entrada de audio
+  .audio_r(audio_r_del_core),            // 16 bits, PCM, ca2
+  .i2s_bclk(i2s_bclk),                   // 
+  .i2s_lrclk(i2s_lrclk),                 // Salida hacia el módulo I2S
+  .i2s_dout(i2s_dout),                   //
+  .sd_audio_l(audio_out_left),           // Salida de 1 bit desde
+  .sd_audio_r(audio_out_right),          // los conversores sigma-delta
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  .ro(),          // 
+  .go(),          // Lo mismo con la entrada de imagen.
+  .bo(),          // Aquí, de momento, no ponemos nada
+  .hsync(),       // ni conectamos nada. El core está ahora mismo
+  .vsync(),       // conectado directamente a los pines de la VGA
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  .joy_data(joy_data),          // Aunque este core no usa el joystick
+  .joy_latch_megadrive(1'b1),   // (porque no sé siquiera si se usa en el
+  .joy_clk(joy_clk),            // Jupiter ACE), dejo conectadas las señales
+  .joy_load_n(joy_load_n),      // de comando, pero desconectadas las salidas
+  .joy1up(),                    //
+  .joy1down(),                  //
+  .joy1left(),                  //
+  .joy1right(),                 //
+  .joy1fire1(),                 //
+  .joy1fire2(),                 //
+  .joy1fire3(),                 //
+  .joy1start(),                 //
+  .joy2up(),                    //
+  .joy2down(),                  //
+  .joy2left(),                  //
+  .joy2right(),                 //
+  .joy2fire1(),                 //
+  .joy2fire2(),                 //
+  .joy2fire3(),                 //
+  .joy2start(),                 //    
+  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  .dp_tx_lane_p(dp_tx_lane_p),          // De los dos lanes de la Artix 7, solo uso uno.
+  .dp_tx_lane_n(dp_tx_lane_n),          // Cada lane es una señal diferencial. Esta es la parte negativa.
+  .dp_refclk_p(dp_refclk_p),            // Reloj de referencia para los GPT. Siempre es de 135 MHz
+  .dp_refclk_n(dp_refclk_n),            // El reloj también es una señal diferencial.
+  .dp_tx_hp_detect(dp_tx_hp_detect),    // Indica que se ha conectado un monitor DP. Arranca todo el proceso de entrenamiento
+  .dp_tx_auxch_tx_p(dp_tx_auxch_tx_p),  // Señal LVDS de salida (transmisión)
+  .dp_tx_auxch_tx_n(dp_tx_auxch_tx_n),  // del canal AUX. En alta impedancia durante la recepción
+  .dp_tx_auxch_rx_p(dp_tx_auxch_rx_p),  // Señal LVDS de entrada (recepción)
+  .dp_tx_auxch_rx_n(dp_tx_auxch_rx_n),  // del canal AUX. Siempre en alta impedancia ya que por aquí no se transmite nada.
+  /////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  .dp_ready(),                  // Señales de depuración 
+  .dp_heartbeat()               // del DisplayPort
+  );
+```
+
+`audio_l_del_core` y `audio_r_del_core` son señales de 16 bits, en formato de complemento a 2. Por otra parte, el core de Jupiter ACE ofrece las siguientes señales:
+
+```verilog
+wire spk;
+wire mic;
+wire ear;
+wire [7:0] ay_a, ay_b, ay_c;
+```
+
+Hay que mezclar estas señales y obtener, de ahí, dos valores para `audio_l_del_core` y `audio_r_del_core`. Esto es lo que he hecho:
+
+```verilog
+// Conversión de las señales de audio del core a valores de 16 bits ca2
+ // En este caso usamos la mitad positiva del rango (0000 a 7FFF)
+ //////////////////////////////////////////////////////////////////////////////
+  reg [15:0] audio_l_del_core, audio_r_del_core;
+  reg [15:0] audio_basico;
+  always @* begin
+    audio_basico = {3'b000, {3{spk}}, {3{ear}}, {7{mic}} };
+    audio_l_del_core = audio_basico + {3'b000, ay_a, ay_a[7:3]} + {3'b000, ay_c, ay_c[7:3]};
+    audio_r_del_core = audio_basico + {3'b000, ay_b, ay_b[7:3]} + {3'b000, ay_c, ay_c[7:3]};  
+  end
+//////////////////////////////////////////////////////////////////////////////
+```
+
+Primero, combino en un único valor, `audio_basico`, las señales `ear`, `mic` y `spk`. En la mezcla, `spk` es la que suena más alto, seguido de `ear`, y por último, `mic`. Esto lo consigo moviendo cada señal a un peso más o menos elevado según la importancia que quiero que tenga. Los valores mínimo y máximo que consigo son: 0000 0000 0000 0000 y 0001 1111 1111 1111, o dicho de otra forma, un rango entre 0000h y 1FFFh (0 a 8191). Estos valores son positivos en complemento a 2.
+
+Como además tengo un AY-3-8912, pretendo crear señales estéreo compatibles con el formato ACB (canal A+C por el altavoz izquierdo, y B+C por el derecho). Las señales de audio básico las quiero sacar por ambos altavoces, así que mi mezcla es:
+
+```
+altavoz izquierdo = A + C + audio_basico
+altavoz derecho   = B + C + audio_basico
+```
+
+Cada suma usa términos positivos, y en ca2 de 16 bits, el valor más positivo posible es 7FFF o 32767, así que cada una de estas sumas no debe sobrepasar esa cantidad, o si no tendremos distorsión. Como son 3 sumandos, y cada uno de ellos puede ir de 0 a máximo, entonces ninguno puede sobrepasar el valor 32767/3 = 10922.3 . La potencia de 2 más cercana, por defecto, es 8192, que corresponde a un valor de 13 bits. 13 bits tendrán, por tanto, cada uno de estos sumandos.
+
+En el caso de `audio_basico`, la forma en la que genero el valor ya me proporciona el rango deseado, como hemos visto antes. Los tres bits a 0 por la izquierda me dan un valor en total de 16 bits.
+
+Para cada uno de los canales del AY-3-8912, que originalmente viene como un valor de 8 bits sin signo, lo que hago es concatenarlo consigo mismo por la derecha, hasta rellenar 13 bits, para luego rellenar con 3 bits a 0 por la izquierda hasta llegar a 16 bits. Por ejemplo, para el canal A (señal `ay_a`) queda así: `{3'b000, ay_a, ay_a[7:3]}`
+
+De esta forma, y como se puede observar en el código mostrado más arriba, cada suma dará un valor compatible con el rango positivo del complemento a 2 para 16 bits. En realidad, el rango obtenido irá desde 0 hasta 8191\*3 para cada salida, es decir, de 0 a 24573
