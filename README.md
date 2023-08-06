@@ -203,7 +203,7 @@ tv80n cpu (
 
 En la CPU hay partes que funcionan con el flanco negativo del reloj y otras con el flanco positivo, así que necesito dos tipos de *enable*: uno para cada tipo de flanco. Cada señal de *enable* tiene la mitad de frecuencia del reloj de 6.5 MHz, así que con ellas conseguimos que el módulo de CPU funcione a la frecuencia original de 3.25 MHz.
 
-### Port del sonido
+### Conexión del sonido
 
 Vamos a comenzar adaptando el sonido. Antes de nada, añadir todos los ficheros de ZX3W, y modificar el TLD añadiendo las señales que no teníamos: las concernientes al módulo I2S, joystick (aunque éstas no las usaremos en el core), y las más importantes: las del DisplayPort. La definición del nuevo TLD queda así (que puede usarse como plantilla para casi cualquier otro core):
 
@@ -239,18 +239,18 @@ module tld_jace_color_ay (
    
    output wire        sd_cs_n,    
    output wire        sd_clk,     
-   output wire       sd_mosi,    
-   input  wire       sd_miso,
+   output wire        sd_mosi,    
+   input  wire        sd_miso,
    
-   output wire       dp_tx_lane_p,
-   output wire       dp_tx_lane_n,
-   input  wire       dp_refclk_p,
-   input  wire       dp_refclk_n,
-   input  wire       dp_tx_hp_detect,
-   inout  wire       dp_tx_auxch_tx_p,
-   inout  wire       dp_tx_auxch_tx_n,
-   inout  wire       dp_tx_auxch_rx_p,
-   inout  wire       dp_tx_auxch_rx_n
+   output wire        dp_tx_lane_p,
+   output wire        dp_tx_lane_n,
+   input  wire        dp_refclk_p,
+   input  wire        dp_refclk_n,
+   input  wire        dp_tx_hp_detect,
+   inout  wire        dp_tx_auxch_tx_p,
+   inout  wire        dp_tx_auxch_tx_n,
+   inout  wire        dp_tx_auxch_rx_p,
+   inout  wire        dp_tx_auxch_rx_n
 );
 ```
 
@@ -271,20 +271,20 @@ La primera instanciación que haremos del ZX3W sólo tendrá conectadas las señ
                                 // y 0 cuando no lo está. Conéctala aquí.
   .reboot_fpga(),   // Señal generada por el teclado. Vale 1 para indicar reboot de la FPGA 
   ///////////////////////////////////////////////////////////////////////////////////////////////////////////
-  .sram_addr_in(21'h1FFFFF),      //
-  .sram_we_n_in(1'b1),            // 
-  .sram_oe_n_in(1'b1),            //
-  .sram_data_from_chip(),         //
-  .sram_data_to_chip(8'hFF),      //
+  .sram_addr_in(21'h1FFFFF),    //
+  .sram_we_n_in(1'b1),          // 
+  .sram_oe_n_in(1'b1),          //
+  .sram_data_from_chip(),       //
+  .sram_data_to_chip(8'hFF),    //
   .sram_addr_out(sram_addr),        // Estas señales que vienen del
   .sram_we_n_out(sram_we_n),        // y hacia el ZX3W las dejamos
-  .sram_oe_n_out(sram_oe_n),      // ya conectadas al
-  .sram_ub_n_out(sram_ub_n),      // chip SRAM, para 
-  .sram_lb_n_out(sram_lb_n),      // usarlas más tarde
-  .sram_data(sram_data),          //
-  .poweron_reset(),                   // De momento, no usamos 
-  .config_vga_on(),                   // nada de esto
-  .config_scanlines_off(),            //
+  .sram_oe_n_out(sram_oe_n),        // ya conectadas al
+  .sram_ub_n_out(sram_ub_n),        // chip SRAM, para 
+  .sram_lb_n_out(sram_lb_n),        // usarlas más tarde
+  .sram_data(sram_data),            //
+  .poweron_reset(),             // De momento, no usamos 
+  .config_vga_on(),             // nada de esto
+  .config_scanlines_off(),      //
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////
   .video_output_sel(1'b0),     // De momento, ponemos aquí PAL
   .disable_scanlines(1'b1),    // De momento, sin scanlines
@@ -292,7 +292,7 @@ La primera instanciación que haremos del ZX3W sólo tendrá conectadas las señ
   .interlaced_image(1'b0),     // La imagen del Jupiter ACE no es entrelazada
   .ad724_modo(1'b0),           // Se genera un reloj de color PAL (17.74 MHz)
   .ad724_clken(1'b0),          // De momento, no usaremos el reloj PAL generado en la FPGA  ////////////////////////////////////////////////////////////////////////////////////////////////////////////
-.ri(),               //
+  .ri(),               //
   .gi(),               // Aquí irían las señales de color
   .bi(),               // del Jupiter ACE. De momento, no
   .hsync_ext_n(),      // ponemos nada aquí
@@ -389,4 +389,82 @@ En el caso de `audio_basico`, la forma en la que genero el valor ya me proporcio
 
 Para cada uno de los canales del AY-3-8912, que originalmente viene como un valor de 8 bits sin signo, lo que hago es concatenarlo consigo mismo por la derecha, hasta rellenar 13 bits, para luego rellenar con 3 bits a 0 por la izquierda hasta llegar a 16 bits. Por ejemplo, para el canal A (señal `ay_a`) queda así: `{3'b000, ay_a, ay_a[7:3]}`
 
-De esta forma, y como se puede observar en el código mostrado más arriba, cada suma dará un valor compatible con el rango positivo del complemento a 2 para 16 bits. En realidad, el rango obtenido irá desde 0 hasta 8191\*3 para cada salida, es decir, de 0 a 24573
+De esta forma, y como se puede observar en el código mostrado más arriba, cada suma dará un valor compatible con el rango positivo del complemento a 2 para 16 bits. En realidad, el rango obtenido irá desde 0 hasta 8191\*3 para cada salida, es decir, de 0 a 24573.
+
+### Conexión a la SRAM
+
+La parte de ZX3W que gobierna la SRAM tiene esta interfaz:
+
+```verilog
+  //////////////////////////////////////////
+  input  wire [20:0] sram_addr_in,
+  input  wire        sram_we_n_in,
+  input  wire        sram_oe_n_in,
+  input  wire [7:0]  sram_data_to_chip,
+  output wire [7:0]  sram_data_from_chip,
+  //----------------------------------------
+  output wire [19:0] sram_addr_out,
+  output wire        sram_we_n_out,
+  output wire        sram_oe_n_out,
+  output wire        sram_ub_n_out,
+  output wire        sram_lb_n_out,
+  inout  wire [15:0] sram_data,
+  output wire        poweron_reset,
+  output wire        config_vga_on,
+  output wire        config_scanlines_off,
+  //////////////////////////////////////////
+```
+
+La descripción está dividida en dos partes: la superior, que es la que se conecta al core, y ofrece una interfaz de SRAM con un bus de direcciones de 21 bits, un bus de datos de 8 bits, una señal de habilitación de escritura `sram_we_n_in` y otra de lectura `sram_oe_n_in`. Estas dos últimas señales las debe proporcionar el core, y son entradas para el ZX3W. El bus de datos está separado, con señales de entrada y de salida. La señal `sram_data_to_chip` es de entrada, y recibe un dato de 8 bits que el core pretende escribir en la SRAM. La señal `sram_data_from_chip` es de salida, y contiene un dato que la SRAM entrega para que lo consuma el core.
+
+La mitad inferior, en concreto, las seis primeras señales de esa mitad, se conectan directamente a sus señales homónimas en el TLD. Aquí el bus de datos es de 16 bits, pero con dos señales que seleccionan qué mitad se va a usar. De la multiplexión y gestión de estas señales se encarga el propio ZX3W.
+
+Conectamos las señales del core al ZX3W así:
+
+```verilog
+  ///////////////////////////////////////////////////////////////////////////////////////////////////////////
+  .sram_addr_in(jace_sram_addr),                     // Bus de direcciones proveniente del core (el Jupiter ACE)
+  .sram_we_n_in(jace_sram_we_n),                     // Señal de escritura proveniente del core 
+  .sram_oe_n_in(jace_sram_oe_n),                     // Señal de habilitación de lectura proveniente del core
+  .sram_data_from_chip(jace_sram_data_from_chip),    // Datos que vienen del chip de SRAM, de salida para el core
+  .sram_data_to_chip(jace_sram_data_to_chip),        // Datos que vienen del core, de entrada, para el chip SRAM
+  .sram_addr_out(sram_addr),                         // Bus de direcciones que se conecta directamente a la SRAM
+  .sram_we_n_out(sram_we_n),                         // Señal de escritura que se conecta directamente a la SRAM
+  .sram_oe_n_out(sram_oe_n),                         // Señal de habilitación de lectura que se conecta directamente a la SRAM
+  .sram_ub_n_out(sram_ub_n),                         // Señales de selección del bus de la SRAM
+  .sram_lb_n_out(sram_lb_n),                         //
+  .sram_data(sram_data),                             // Bus de datos de 16 bits conectado a la SRAM
+  .poweron_reset(poweron_reset),                     // Señal de reset (nivel alto) de entrada para el core 
+  .config_vga_on(),                   // a 1 para indicar que inicialmente hay que poner el core en modo VGA. Va para el módulo de teclado
+  .config_scanlines_off(),       // a 1 para indicar que hay que deshabilitar las scanlines. Va para el módulo de teclado
+///////////////////////////////////////////////////////////////////////////////////////////////////////////
+```
+
+Las nuevas señales que usamos son estas:
+
+```verilog
+  wire [20:0] jace_sram_addr;
+  wire        jace_sram_we_n, jace_sram_oe_n;
+  wire [7:0]  jace_sram_data_to_chip;
+  wire [7:0]  jace_sram_data_from_chip;
+```
+
+Y en el core las conectamos (y por tanto, conectamos el core al ZX3W), así:
+
+```verilog
+   .ext_sram_addr(jace_sram_addr),              //
+   .data_to_sram(jace_sram_data_to_chip),       // La memoria de usuario básica (1K) y la memoria
+   .data_from_sram(jace_sram_data_from_chip),   // extendida (48K) se cogen de la memoria SRAM
+   .sram_we_n(jace_sram_we_n),                  // externa. En total, este Jupiter ACE tiene 51K de RAM
+   .sram_oe_n(jace_sram_oe_n)                   // La memoria de caracteres y de patrones se implementa con BRAM
+```
+
+En ZX3W hemos conectado otra señal, `poweron_reset`, activa a nivel alto. En el momento en que usamos la SRAM a través de ZX3W, tenemos que recordar que no siempre tenemos a nuestra disposición la SRAM. Durante 32 ciclos, al principio del arranque del core, la SRAM no está a disposición de éste, porque se está leyendo de memoria la configuración de VGA y scanlines que dejó la BIOS antes de arrancar este core.
+
+Para que el core no pretenda usar la SRAM antes de tiempo, la señal `poweron_reset` indica, mientras vale 1, que el core debe permanecer en estado de reseteo. Esto se traduce a que en la instanciación del core, la señal `reset_n` que hasta entonces se definía así:
+
+`.reset_n (kbd_reset & locked),`
+
+Ahora se haga así, añadiendo esta nueva señal:
+
+`.reset_n (kbd_reset & locked & ~poweron_reset),`
