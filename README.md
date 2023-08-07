@@ -14,7 +14,7 @@ Jupiter Cantab Jupiter ACE clone.
 
 -   Ctrl-Alt-Supr : CPU reset
 -   Ctrl-Alt-Bkspace : Master reset. Return to ZX Spectrum core
--   Home : Scanlines on/off
+-   Home : Líneas on/off
 -   End : Cycle monochrome effect
 -   ScrBlk : PAL/VGA switch
 
@@ -284,10 +284,10 @@ La primera instanciación que haremos del ZX3W sólo tendrá conectadas las señ
   .sram_data(sram_data),            //
   .poweron_reset(),             // De momento, no usamos 
   .config_vga_on(),             // nada de esto
-  .config_scanlines_off(),      //
+  .config_líneas_off(),      //
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////
   .video_output_sel(1'b0),     // De momento, ponemos aquí PAL
-  .disable_scanlines(1'b1),    // De momento, sin scanlines
+  .disable_líneas(1'b1),    // De momento, sin líneas
   .monochrome_sel(2'b00),      // De momento, sin efecto mono
   .interlaced_image(1'b0),     // La imagen del Jupiter ACE no es entrelazada
   .ad724_modo(1'b0),           // Se genera un reloj de color PAL (17.74 MHz)
@@ -413,7 +413,7 @@ La parte de ZX3W que gobierna la SRAM tiene esta interfaz:
   inout  wire [15:0] sram_data,
   output wire        poweron_reset,
   output wire        config_vga_on,
-  output wire        config_scanlines_off,
+  output wire        config_líneas_off,
   //////////////////////////////////////////
 ```
 
@@ -438,7 +438,7 @@ Conectamos las señales del core al ZX3W así:
   .sram_data(sram_data),                             // Bus de datos de 16 bits conectado a la SRAM
   .poweron_reset(poweron_reset),                     // Señal de reset (nivel alto) de entrada para el core 
   .config_vga_on(),                   // a 1 para indicar que inicialmente hay que poner el core en modo VGA. Va para el módulo de teclado
-  .config_scanlines_off(),       // a 1 para indicar que hay que deshabilitar las scanlines. Va para el módulo de teclado
+  .config_líneas_off(),       // a 1 para indicar que hay que deshabilitar las líneas. Va para el módulo de teclado
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////
 ```
 
@@ -461,7 +461,7 @@ Y en el core las conectamos (y por tanto, conectamos el core al ZX3W), así:
    .sram_oe_n(jace_sram_oe_n)                   // La memoria de caracteres y de patrones se implementa con BRAM
 ```
 
-En ZX3W hemos conectado otra señal, `poweron_reset`, activa a nivel alto. En el momento en que usamos la SRAM a través de ZX3W, tenemos que recordar que no siempre tenemos a nuestra disposición la SRAM. Durante 32 ciclos, al principio del arranque del core, la SRAM no está a disposición de éste, porque se está leyendo de memoria la configuración de VGA y scanlines que dejó la BIOS antes de arrancar este core.
+En ZX3W hemos conectado otra señal, `poweron_reset`, activa a nivel alto. En el momento en que usamos la SRAM a través de ZX3W, tenemos que recordar que no siempre tenemos a nuestra disposición la SRAM. Durante 32 ciclos, al principio del arranque del core, la SRAM no está a disposición de éste, porque se está leyendo de memoria la configuración de VGA y líneas que dejó la BIOS antes de arrancar este core.
 
 Para que el core no pretenda usar la SRAM antes de tiempo, la señal `poweron_reset` indica, mientras vale 1, que el core debe permanecer en estado de reseteo. Esto se traduce a que en la instanciación del core, la señal `reset_n` que hasta entonces se definía así:
 
@@ -623,12 +623,12 @@ La parte que queda de la instanciación de señales para la parte de video, qued
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////
 ```
 
-Y un poco antes, en la parte en la que se elige la salida de video, forzamos a que se emita la señal PAL original, sin efectos monocromáticos, y poner o no las scanlines, lo dejamos a gusto de cada uno.
+Y un poco antes, en la parte en la que se elige la salida de video, forzamos a que se emita la señal PAL original, sin efectos monocromáticos, y poner o no las líneas, lo dejamos a gusto de cada uno.
 
 ```verilog
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////
   .video_output_sel(1'b0),    // Señal PAL por el conector VGA
-  .disable_scanlines(1'b0),   // Scanlines activas, porque yo lo valgo
+  .disable_líneas(1'b0),   // Líneas activas, porque yo lo valgo
   .monochrome_sel(2'b00),     // Sin modo monocromático
   .interlaced_image(1'b0),    // La imagen del Jupiter ACE no es entrelazada
   .ad724_modo(1'b0),          // Se genera un reloj de color PAL (17.74 MHz)
@@ -642,4 +642,71 @@ Faltan dos cosas en la instanciación:
 -   Un reloj de video adecuado
 -   Especificar los valores de HSTART, VSTART
 
-Para el reloj:
+**Para el reloj:** es cierto que tenemos disponible el reloj de color original, los 6.5 MHz. La cuestión es que el framescaler funciona con píxeles con temporización de PAL. Dicho de otra forma: el framescaler, y la lógica que opera con él, espera relojes de video del orden de los 13-14 MHz, que es lo habitual en PAL.
+
+Lo que ocurre con muchos sistemas antiguos es que trabajan a la mitad (o menos) de la resolución horizontal nominal de PAL. Por ejemplo, el ZX Spectrum opera con 352 píxeles horizontales y no con 704. Su reloj de pixel es de 7 MHz, cuando debería ser de 14 MHz.
+
+En el Jupiter ACE ocurre lo mismo: su reloj de pixel es de 6.5 MHz, y el framescaler espera 13 MHz. A esa frecuencia, en realidad estaremos guardando el valor del mismo pixel dos veces seguidas, lo que es un desperdicio de memoria. Se deja como ejercicio para el lector el reducir a la mitad el framebuffer, de forma que no se escriban dos píxeles idénticos, uno detrás de otro.
+
+Así, al generar los relojes, hay que generar otro del doble de la frecuencia del reloj de pixel: 13 MHz, que es el que en realidad usaremos como `clkvideo` dentro de ZX3W. No es, como digo, una situación ideal, pero permite generalizar el wrapper, para que funcione con la mayor cantidad posible de sistemas. Al portar uno del que se sepa que funciona a la mitad de la resolución PAL (MSX, Commodore 64, ZX81, Jupiter ACE, etc.) se puede optar por modificar la lógica de lectura/escritura en el framebuffer y así usar la mitad de la memoria. Para el ZX Spectrum (con el modo Timex HiRes), Amstrad CPC, SAM Coupé, QL, MSX2 y alguno que otro, habrá que dejar el framebuffer como lo tenemos ahora.
+
+**Valores de HSTART y VSTART:** he pensado en algunos momentos el añadir una interfaz interactiva, disponible activando algún flag de depuración, para asistir a la búsqueda de valores adecuados, pero de momento no me he picado tanto como para necesitarlo. Lo que quiero decir es que habrá que usar un poco de cálculo tirando de que lo sepamos de la generación de video del core que estamos portando, y otro poco de ensayo y error.
+
+**HSTART** se define como el número de ciclos de reloj (del reloj usado en `clkvideo`) que hay desde que termina (pasa de 0 a 1) la señal de sincronismo horizontal hasta que ocurre el primer pixel que queremos guardar en el framebuffer.
+
+El framebuffer es de 640 píxeles por línea. Un línea en PAL son 704, o 720, o 768, según el reloj que tengamos. Ese dato es algo que tienes que averiguar en tu core. Para el ejemplo, supongamos 704. Como no cabe entero, hay que desperdiciar píxeles a izquierda y derecha. En concreto, hay que desperdiciar (704-640)/2 píxeles.
+
+A este valor hay que añadir el número de ciclos de reloj (o píxeles) que hay desde que ha terminado el sincronismo horizontal hasta que comienza el primer pixel de la imagen original.
+
+Esto en PAL es el tiempo de back porch. Suele ser unos 8 us, pero mejor intenta averiguarlo en tu core. En el de Jupiter ACE, esa información está en `jace_logic.v` , entre las líneas 73 y 122, que es donde se generan todos los timings de la señal de video.
+
+El valor final de esa suma es HSTART.
+
+En el caso del ACE, en el ciclo 342 (del reloj de 6.5 MHz) termina el sincronismo horizontal (línea 97) y en el ciclo (416-40=376, en la línea 118) termina el back porch. Total: 376-342=34 ciclos de reloj de 6.5 MHz. Para un reloj de 13 MHz, será el doble, 68 ciclos.
+
+La cantidad de píxeles que se pintan en un línea se denomina "la zona activa". Suelen ser unos 52 us. En el Jupiter ACE, esto incluye la zona de borde (que en el ordenador original siempre está a negro) más la zona de "paper" (256 píxeles). En la línea 118 tenemos el cálculo: todo lo que no es blanking, es zona activa: desde 416-40 hasta 416, y desde 0 hasta 256+40. O sea, 256+80=336 píxeles, o ciclos de reloj.
+
+Para el reloj que estamos usando, esos píxeles son el doble: 672 píxeles. Esto es lo que se "ve" en una pantalla original del Jupiter ACE. De esta línea tenemos que coger los 640 píxeles centrales. Tenemos que descartar (672-640)/2 = 16 píxeles (a cada lado, izquierda y derecha).
+
+Sumando este valor 16 con el 68 de antes (el back porch), obtenemos 84. Ese será nuestro valor de HSTART.
+
+El valor final que veis en el core, 80, viene de haber hecho ajustes manuales. No siempre el valor que obtenemos con este cálculo es el perfecto, ya que cada monitor añade su propio offset. No obstante, es un buen valor para empezar.
+
+Si no os es posible averiguar la información de timing concreta de vuestro core, asumid 8 us de back porch, y 704 píxeles por línea. Sólo necesitaréis el valor de la frecuencia en MHz del reloj de pixel a usar (que estará en torno a los 13-14 MHz antes mencionados). El cálculo es por tanto: `HSTART = (704-640)/2 + 8*clkvideo`
+
+**VSTART** se define de forma análoga: el número de líneas (que no ciclos de reloj) que ocurren desde que termina el sincronismo vertical hasta que comienza el primer línea que se va a guardar.
+
+Aquí, tanto si la imagen original es entrelazada, como si no lo es, asumimos un valor de 288 líneas por frame/campo, que es lo estándar en PAL. De este frame/campo, guardaremos 240 líneas, así que nos sobran (288-240)/2 = 24 líneas. Como no estamos trabajando con ciclos de reloj, sino con líneas, no se multiplica por 2 como antes.
+
+La parte que toca calcular, y que dependerá un poco del core, es cuántas líneas están a negro (back porch vertical, o como se llame en este caso), antes de que comience la imagen propiamente dicha. En PAL, la imagen "debe" comenzar en la línea 23, lo que significaría que, en teoría, el valor de VSTART debería ser 23+24=47. Sin embargo, aquí es donde el core puede cambiar cosas. Si no podemos averiguar esta información, 47 es un buen valor para tantear.
+
+En el Jupiter ACE, el sincronismo vertical se genera en `jace_logic.v` en la línea 85 a 92, y de la 116 a la 122 se genera el blanking vertical.
+
+Podemos ver (línea 97) que el sincronismo vertical termina en la línea 255. La 256 es la primera línea después del sincronismo. En la línea 118 vemos que el blanking vertical termina en (312-48)=264. Por tanto, tenemos 264-256=8 líneas de blanking vertical (bastante menos que 23).
+
+La cantidad de líneas que se emiten en la zona activa van desde la línea 264 (hasta la 311 inclusive, o sea 48 líneas que corresponden al borde superior) más las 192 líneas que corresponden a la pantalla "normal", más otras 48 líneas del borde inferior. En total, 192+48+48=288 líneas. De aquí hay que coger las 240 líneas centrales. El cálculo ya lo habíamos hecho antes: tenemos que descartar arriba y abajo 24 líneas.
+
+Sumando este 24 al 8 de antes, tenemos 32, como valor final de VSTART. En este caso, el valor calculado es muy parecido al que se ha usado finalmente (31).
+
+En ZX3W, cambiad `video_output_sel` para que ahora tenga un 1 y podáis ver la imagen en VGA, o mejor aún, si disponéis de un monitor con entrada DisplayPort y otro que admita PAL RGB, dejad esa señal a 0, conectad ambos y así podéis ver la pantalla original en PAL RGB, que no debe haberse alterado por todo esto que hemos calculado, y la pantalla escalada en digital en el monitor DP. Con esa imagen ya podéis hacer las correcciones oportunas.
+
+### Auto configuración del modo inicial de video
+
+La BIOS del ZXTRES proporciona a los cores que se cargan desde ella (vía menú de selección de cores, o desde el comando .core en ESXDOS o desde el comando .zx3 también de ESXDOS) la información básica de modo de video configurado (PAL o VGA) y si las scanlines están activas o no.
+
+Esta información se recoge desde la memoria SRAM justo al arrancar el core y está disponible en las señales de salida `config_vga_on` y `config_scanlines_off` .
+
+Si desde el propio core no se va a dar opción a que el usuario cambie el modo de video, entonces basta con conectar mediante una señal estas dos salidas, a sus correspondientes entradas, también en ZX3W, que son: `video_output_sel` y `disable_scanlines` . En cuanto a `monochrome_sel` , tanto el core de ZX Spectrum como el de Jupiter ACE usan la tecla *Fin* (*End* en el teclado inglés) para ciclar entre los cuatro modos monocromáticos que existen.
+
+En el Jupiter ACE se permite al usuario cambiar el modo de video (usando BlqDesp/ScrLck) y si usamos o no las scanlines (tecla Inicio/Home). Esto se hace desde el módulo de teclado. Los registros que guardan la información del modo activo de video, scanlines, etc, se inicializan con los valores de configuración suministrados por ZX3W. Esto se hace durante el reset inicial en donde ZX3W está leyendo la memoria. Esa señal de reset inicial se envía al módulo de control de teclado para que sea usada como enable para cargar en esos registros la información inicial, así:
+
+```verilog
+  always @(posedge clk) begin
+    if (poweron_reset == 1'b1) begin
+      video_output <= vi_video_output;
+      disable_scanlines <= vi_disable_scanlines;
+    end
+    else if ................
+```
+
+`poweron_reset` viene del ZX3W, y está a nivel alto mientras ZX3W está leyendo la configuración desde la SRAM.
