@@ -7,7 +7,7 @@ set_false_path -from [get_clocks clk_out3_clk_wiz_0] -to [get_clocks tx_symbol_c
 set_false_path -from [get_clocks clk_out4_clk_wiz_0] -to [get_clocks tx_symbol_clk]
 set_false_path -from [get_clocks tx_symbol_clk] -to [get_clocks clk_out3_clk_wiz_0] 
 
-set_property IOB TRUE [all_inputs]
+#set_property IOB TRUE [all_inputs]
 set_property IOB TRUE [all_outputs]
 
 set_property BITSTREAM.CONFIG.SPI_32BIT_ADDR YES [current_design]
