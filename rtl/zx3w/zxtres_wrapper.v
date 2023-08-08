@@ -110,9 +110,9 @@ module zxtres_wrapper (
   input  wire        ad724_modo,
   input  wire        ad724_clken,
   //////////////////////////////////////////
-  input  wire        ri,
-  input  wire        gi,
-  input  wire        bi,
+  input  wire [7:0]  ri,
+  input  wire [7:0]  gi,
+  input  wire [7:0]  bi,
   input  wire        hsync_ext_n,
   input  wire        vsync_ext_n,
   input  wire        csync_ext_n,
@@ -120,9 +120,9 @@ module zxtres_wrapper (
   input  wire [15:0] audio_l,
   input  wire [15:0] audio_r,
   //////////////////////////////////////////
-  output reg [5:0]   ro,
-  output reg [5:0]   go,
-  output reg [5:0]   bo,
+  output reg [7:0]   ro,
+  output reg [7:0]   go,
+  output reg [7:0]   bo,
   output reg         hsync,
   output reg         vsync,
   //////////////////////////////////////////
@@ -174,7 +174,7 @@ module zxtres_wrapper (
 
   wire [18:0] ar, aw;
   wire we;
-  wire [5:0] ro_vga, go_vga, bo_vga;
+  wire [7:0] ro_vga, go_vga, bo_vga;
   wire [7:0] rpal, gpal, bpal;
   wire [7:0] rfb, gfb, bfb;
   wire [7:0] rdim, gdim, bdim;
@@ -288,7 +288,7 @@ module zxtres_wrapper (
     .bout(bfb)
   );
 
-  monochrome efecto_mono_pal (monochrome_sel, {8{ri}}, {8{gi}}, {8{bi}}, rpal, gpal, bpal);
+  monochrome efecto_mono_pal (monochrome_sel, ri, gi, bi, rpal, gpal, bpal);
   
   monochrome efecto_mono_vga (monochrome_sel, rfb, gfb, bfb, riproc, giproc, biproc);
 
@@ -325,9 +325,9 @@ module zxtres_wrapper (
 
   always @* begin
     if (video_output_sel == 1'b0) begin // 15kHz + DP output
-      ro = rpal[7:2];   // esta salida depende exclusivamente de
-      go = gpal[7:2];   // como esté codificado el color en el
-      bo = bpal[7:2];   // video original
+      ro = rpal;   // esta salida depende exclusivamente de
+      go = gpal;   // como esté codificado el color en el
+      bo = bpal;   // video original
       hsync = csync_ext_n;
       vsync = clkcolor4x;
     end
@@ -564,9 +564,9 @@ module vga_consumer (
   input wire [7:0] ri,
   input wire [7:0] gi,
   input wire [7:0] bi,
-  output reg [5:0] ro,
-  output reg [5:0] go,
-  output reg [5:0] bo,
+  output reg [7:0] ro,
+  output reg [7:0] go,
+  output reg [7:0] bo,
   output reg hs,
   output reg vs
   );
@@ -626,14 +626,14 @@ module vga_consumer (
 
   always @* begin
     if (active_area) begin
-			ro = ri[7:2];
-      go = gi[7:2];
-      bo = bi[7:2];
+			ro = ri;
+      go = gi;
+      bo = bi;
     end
     else begin
-      ro = 6'h00;
-      go = 6'h00;
-      bo = 6'h00;
+      ro = 8'h00;
+      go = 8'h00;
+      bo = 8'h00;
     end
   end
 endmodule
@@ -641,9 +641,9 @@ endmodule
 module dp_memory (
   input  wire clkw,
   input  wire [18:0] aw,
-  input  wire rin,
-  input  wire gin,
-  input  wire bin,
+  input  wire [7:0] rin,
+  input  wire [7:0] gin,
+  input  wire [7:0] bin,
   input  wire we,
   input  wire clkr,
   input  wire [18:0] ar,
@@ -652,7 +652,7 @@ module dp_memory (
   output wire [7:0] bout
   );
 
-  reg [2:0] fb   [0:640*240-1];  // 640*240 pixeles
+  reg [2:0] fb [0:640*240-1];  // 640*240 pixeles
   reg [2:0] dout;
   
   assign rout = {8{dout[1]}};
@@ -661,7 +661,7 @@ module dp_memory (
 
   always @(posedge clkw) begin
     if (we == 1'b1) begin
-      fb[aw] <= {rin,gin,bin};
+      fb[aw] <= {rin[7],gin[7],bin[7]};
     end
   end
 
