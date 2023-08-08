@@ -22,9 +22,9 @@
 module tld_jace_color_ay (
    input wire clk50mhz,
 
-   output wire [5:0] vga_r,
-   output wire [5:0] vga_g,
-   output wire [5:0] vga_b,
+   output wire [7:0] vga_r,
+   output wire [7:0] vga_g,
+   output wire [7:0] vga_b,
    output wire vga_hs,
    output wire vga_vs,
    input wire ear,
@@ -184,9 +184,9 @@ module tld_jace_color_ay (
   .ad724_modo(1'b0),                        // Se genera un reloj de color PAL (17.74 MHz)
   .ad724_clken(1'b0),                       // De momento, no usaremos el reloj PAL generado en la FPGA (aunque generar, se genera)
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  .ri(r_ace),                            // Señal de salida del Jupiter ACE. Originalmente es blanco y negro
-  .gi(g_ace),                            // pero este ACE tiene integrado el módulo de color ETI 1984, que 
-  .bi(b_ace),                            // da 1 bit por cada color primario.
+  .ri({8{r_ace}}),                       // Señal de salida del Jupiter ACE. Originalmente es blanco y negro
+  .gi({8{g_ace}}),                       // pero este ACE tiene integrado el módulo de color ETI 1984, que 
+  .bi({8{b_ace}}),                       // da 1 bit por cada color primario.
   .hsync_ext_n(pal_hsync),               // Sincronismos horizontal y vertical
   .vsync_ext_n(pal_vsync),               // por separado
   .csync_ext_n(pal_hsync & pal_vsync),   // El sincronismo compuesto se forma de forma muy sencilla
@@ -199,7 +199,7 @@ module tld_jace_color_ay (
   .sd_audio_l(audio_out_left),           // Salida de 1 bit desde
   .sd_audio_r(audio_out_right),          // los conversores sigma-delta
   ////////////////////////////////////////////////////////////////////////////////////////////////////////////
-  .ro(vga_r),           // Salida de 6 bits directas
+  .ro(vga_r),           // Salida de 8 bits directas
   .go(vga_g),           // a los pines del monitor VGA
   .bo(vga_b),           // 
   .hsync(vga_hs),       // Lo mismo, pero para los sincronismos
