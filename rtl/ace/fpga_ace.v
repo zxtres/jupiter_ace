@@ -91,7 +91,7 @@ module jupiter_ace (
     if (reset_n == 1'b0)
       attr_latch <= 6'b000111;      
     else if (AZ80 == 16'h2700 && mreq_n == 1'b0 && wr_n == 1'b0 && DoutZ80[7] == 1'b1)
-      attr_latch <= DoutZ80[5:0];
+      attr_latch <= {DoutZ80[6:4], DoutZ80[2:0]};
   end 
 
 	// Memoria del equipo

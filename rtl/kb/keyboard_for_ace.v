@@ -103,14 +103,16 @@ module keyboard_for_ace (
         `KEY_RSHIFT:
             begin
               shift_pressed <= ~is_released;
-              if (is_extended)
-                matrix[0][1] <= is_released;  // Right shift = Symbol shift
-              else
-                matrix[0][0] <= is_released;  // Left shift = Caps shift
             end    
         `KEY_LCTRL,
         `KEY_RCTRL:
-            ctrl_pressed <= ~is_released;
+            begin 
+              ctrl_pressed <= ~is_released;
+              if (is_extended)
+                matrix[0][1] <= is_released;  // Right ctrl = Symbol shift
+              else
+                matrix[0][0] <= is_released;  // Left ctrl = Caps shift
+            end
         `KEY_LALT:
             alt_pressed <= ~is_released;
         `KEY_KPPUNTO:
